@@ -1,0 +1,64 @@
+package main
+
+import (
+    "net/http"
+    "fmt"
+    "encoding/csv"
+    "os"
+    "bufio"
+    "strings"
+    "flag"
+)
+
+var endpoints = []string{
+    "/api/",
+    "/api/v1/",
+    "/api/users/",
+    "/api/items/",
+    "/api/orders/",
+    "/api/auth/",
+    "/api/payments/",
+    "/api/search/",
+    "/api/stats/",
+    "/api/notifications/",
+}
+
+func isAPI(ip string, endpoint string) bool {
+    resp, err := http.Get("http://" + ip + endpoint)
+    if err != nil {
+        return false
+    }
+    defer resp.Body.Close()
+
+    if resp.StatusCode == 200 {
+        return true
+    }
+    return false
+}
+
+func main() {
+    var ipsFilePath string
+    var csvFilePath string
+    flag.StringVar(&ipsFilePath, "i", "ips.txt", "Path to the file containing the IP addresses")
+    flag.StringVar(&csvFilePath, "o", "api_endpoints.csv", "Path to the output CSV file")
+    flag.Parse()
+
+    file, _ := os.Open(ipsFilePath)
+    defer file.Close()
+    scanner := bufio.NewScanner(file)
+
+    f, _ := os.Create(csvFilePath)
+    defer f.Close()
+    writer := csv.NewWriter(f)
+    defer writer.Flush()
+
+    for scanner.Scan() {
+        ip := scanner.Text()
+        for _, endpoint := range endpoints {
+            if isAPI(ip, endpoint) {
+                writer.Write([]string{ip, endpoint})
+            }
+        }
+    }
+    fmt.Printf("Scan completed, results written to %s\n", csvFilePath)
+}
