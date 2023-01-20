@@ -8,6 +8,8 @@ import (
     "bufio"
     "strings"
     "flag"
+    "sync"
+    "github.com/cheggaaa/pb"
 )
 
 var endpoints = []string{
@@ -23,17 +25,19 @@ var endpoints = []string{
     "/api/notifications/",
 }
 
-func isAPI(ip string, endpoint string) bool {
+var sem = make(chan struct{}, 10)
+
+func isAPI(ip string, endpoint string, wg *sync.WaitGroup, writer *csv.Writer, bar *pb.ProgressBar) {
+    defer wg.Done()
     resp, err := http.Get("http://" + ip + endpoint)
     if err != nil {
-        return false
+        return
     }
     defer resp.Body.Close()
-
     if resp.StatusCode == 200 {
-        return true
+        writer.Write([]string{ip, endpoint, resp.StatusCode})
     }
-    return false
+    bar.Increment()
 }
 
 func main() {
@@ -52,13 +56,24 @@ func main() {
     writer := csv.NewWriter(f)
     defer writer.Flush()
 
+    var wg sync.WaitGroup
+    var total int
+    for scanner.Scan() {
+        total++
+    }
+    bar := pb.StartNew(total * len(endpoints))
+    file.Seek(0, 0)
+    scanner = bufio.NewScanner(file)
     for scanner.Scan() {
         ip := scanner.Text()
+        sem <- struct{}{}
         for _, endpoint := range endpoints {
-            if isAPI(ip, endpoint) {
-                writer.Write([]string{ip, endpoint})
-            }
+            wg.Add(1)
+            go func(ip, endpoint string) {
+                isAPI(ip, endpoint, &wg, writer, bar)
+                <-sem
+            }(ip, endpoint)
         }
     }
-    fmt.Printf("Scan completed, results written to %s\n", csvFilePath)
-}
+    wg.Wait()
+    bar.FinishPrint("Scan completed, results written to " + csvFilePath)
